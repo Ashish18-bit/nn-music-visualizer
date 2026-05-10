@@ -29,7 +29,7 @@
 "use strict";
 
 // ── Config ───────────────────────────────────────────────────
-const WS_URL = window.WS_URL || `ws://${location.hostname}:8765/ws`;
+const WS_URL = window.WS_URL ||  "wss://accurate-compassion-production-a80c.up.railway.app/ws";
 const MAX_PARTICLES = 300;
 const TARGET_FPS    = 60;
 

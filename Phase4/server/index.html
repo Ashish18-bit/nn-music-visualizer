@@ -6,35 +6,390 @@
   <title>NN Music Visualizer</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #08080f; overflow: hidden; }
-    canvas { display: block; }
-    #status {
-      position: fixed; bottom: 12px; right: 14px;
-      font: 12px monospace; color: rgba(255,255,255,0.25);
-      pointer-events: none;
+    body { background: #08080f; overflow: hidden; font-family: monospace; color: white; }
+    canvas { display: block; position: fixed; inset: 0; }
+
+    /* ── Control Panel ── */
+    #panel {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: rgba(8,8,15,0.92);
+      border-top: 1px solid rgba(255,255,255,0.08);
+      padding: 14px 20px;
+      display: flex; align-items: center; gap: 16px;
+      z-index: 100; backdrop-filter: blur(10px);
+    }
+
+    .btn {
+      padding: 8px 18px; border-radius: 8px; border: none;
+      font-family: monospace; font-size: 13px; cursor: pointer;
+      transition: all 0.2s; font-weight: 500;
+    }
+    .btn-primary {
+      background: #7c3aed; color: white;
+    }
+    .btn-primary:hover { background: #6d28d9; }
+    .btn-primary:disabled { background: #3b1f6e; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: rgba(255,255,255,0.08);
+      color: rgba(255,255,255,0.8);
+      border: 1px solid rgba(255,255,255,0.12);
+    }
+    .btn-secondary:hover { background: rgba(255,255,255,0.15); }
+    .btn-secondary.active {
+      background: rgba(239,68,68,0.2);
+      border-color: rgba(239,68,68,0.5);
+      color: #f87171;
+    }
+
+    #fileInput { display: none; }
+
+    .upload-label {
+      padding: 8px 18px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.8);
+      font-family: monospace; font-size: 13px;
+      cursor: pointer; transition: all 0.2s;
+    }
+    .upload-label:hover { background: rgba(255,255,255,0.12); }
+
+    .track-info { flex: 1; min-width: 0; }
+    .track-name {
+      font-size: 13px; font-weight: 500;
+      color: rgba(255,255,255,0.85);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .track-sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 3px; }
+
+    .progress-wrap { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
+    .progress-bar {
+      flex: 1; height: 3px; background: rgba(255,255,255,0.1);
+      border-radius: 2px; overflow: hidden; cursor: pointer;
+    }
+    .progress-fill { height: 100%; background: #7c3aed; border-radius: 2px; width: 0%; transition: width 0.5s linear; }
+    .progress-time { font-size: 11px; color: rgba(255,255,255,0.35); }
+
+    /* ── Emotion override buttons ── */
+    #emotionBtns {
+      display: flex; gap: 6px; flex-shrink: 0;
+    }
+    .e-btn {
+      padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5);
+      font-family: monospace; font-size: 11px; cursor: pointer; transition: all 0.2s;
+    }
+    .e-btn:hover { background: rgba(255,255,255,0.1); color: white; }
+    .e-btn.active { border-color: var(--ec); color: var(--ec); background: color-mix(in srgb, var(--ec) 15%, transparent); }
+
+    /* ── Status dot ── */
+    #statusDot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #374151; flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    #statusDot.connected { background: #10b981; animation: pulse 2s infinite; }
+    #statusDot.error { background: #ef4444; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    /* ── Top HUD ── */
+    #hud {
+      position: fixed; top: 16px; left: 16px;
+      z-index: 100; pointer-events: none;
+    }
+    #emotionLabel {
+      font-size: 22px; font-weight: 700; letter-spacing: 2px;
+      color: #a78bfa; transition: color 0.6s;
+    }
+    #confBar {
+      display: flex; align-items: center; gap: 8px; margin-top: 6px;
+    }
+    #confFill {
+      height: 4px; border-radius: 2px; background: #7c3aed;
+      transition: width 0.5s, background 0.6s;
+    }
+    #confTrack {
+      width: 100px; height: 4px; background: rgba(255,255,255,0.1);
+      border-radius: 2px; overflow: hidden;
+    }
+    #confText { font-size: 11px; color: rgba(255,255,255,0.35); }
+
+    #wsStatus {
+      position: fixed; top: 16px; right: 16px;
+      font-size: 11px; color: rgba(255,255,255,0.2);
+      z-index: 100; pointer-events: none;
     }
   </style>
 </head>
 <body>
   <canvas id="viz"></canvas>
-  <div id="status">connecting…</div>
-  <script>
-    // Override server URL if needed:
-    // window.WS_URL = "ws://192.168.1.100:8765/ws";
-  </script>
+
+  <!-- Top HUD -->
+  <div id="hud">
+    <div id="emotionLabel">CALM</div>
+    <div id="confBar">
+      <div id="confTrack"><div id="confFill" style="width:80%"></div></div>
+      <div id="confText">80% confidence</div>
+    </div>
+  </div>
+  <div id="wsStatus">connecting…</div>
+
+  <!-- Bottom control panel -->
+  <div id="panel">
+    <div id="statusDot"></div>
+
+    <!-- Upload -->
+    <label class="upload-label" for="fileInput">⬆ Upload Audio</label>
+    <input type="file" id="fileInput" accept="audio/*" />
+
+    <!-- Mic -->
+    <button class="btn btn-secondary" id="micBtn">🎙 Mic</button>
+
+    <!-- Play/Pause -->
+    <button class="btn btn-primary" id="playBtn" disabled>▶ Play</button>
+
+    <!-- Track info -->
+    <div class="track-info">
+      <div class="track-name" id="trackName">No audio loaded — upload a file or use mic</div>
+      <div class="progress-wrap">
+        <div class="progress-bar" id="progressBar">
+          <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <span class="progress-time" id="progressTime">0:00 / 0:00</span>
+      </div>
+      <div class="track-sub" id="trackSub">CNN-LSTM emotion model active</div>
+    </div>
+
+    <!-- Emotion override -->
+    <div id="emotionBtns">
+      <button class="e-btn" style="--ec:#fbbf24" data-emotion="happy">Happy</button>
+      <button class="e-btn" style="--ec:#60a5fa" data-emotion="sad">Sad</button>
+      <button class="e-btn" style="--ec:#a78bfa" data-emotion="calm">Calm</button>
+      <button class="e-btn" style="--ec:#f87171" data-emotion="angry">Angry</button>
+      <button class="e-btn" style="--ec:#34d399" data-emotion="energetic">Energetic</button>
+    </div>
+  </div>
+
   <script src="ws_client.js"></script>
   <script>
-    // Show connection status
-    const statusEl = document.getElementById("status");
-    const _origConnect = connect;
-    document.addEventListener("DOMContentLoaded", () => {
-      setInterval(() => {
-        if (typeof ws !== "undefined") {
-          const states = ["connecting","open","closing","closed"];
-          statusEl.textContent = `ws: ${states[ws.readyState] || "?"}`;
-        }
-      }, 1000);
+    // ── Audio engine ──────────────────────────────────────────
+    let audioCtx, analyser, sourceNode, audioBuffer;
+    let isPlaying = false;
+    let startedAt = 0;
+    let pausedAt = 0;
+    let micStream = null;
+    let isMicActive = false;
+    let overrideEmotion = null;
+
+    const playBtn    = document.getElementById("playBtn");
+    const micBtn     = document.getElementById("micBtn");
+    const fileInput  = document.getElementById("fileInput");
+    const trackName  = document.getElementById("trackName");
+    const trackSub   = document.getElementById("trackSub");
+    const progFill   = document.getElementById("progressFill");
+    const progTime   = document.getElementById("progressTime");
+    const emotionLbl = document.getElementById("emotionLabel");
+    const confFill   = document.getElementById("confFill");
+    const confText   = document.getElementById("confText");
+    const wsStatusEl = document.getElementById("wsStatus");
+    const statusDot  = document.getElementById("statusDot");
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        analyser.connect(audioCtx.destination);
+      }
+    }
+
+    // ── File upload ───────────────────────────────────────────
+    fileInput.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      stopAll();
+      initAudio();
+      trackName.textContent = file.name.replace(/\.[^.]+$/, "");
+      trackSub.textContent = "Decoding audio…";
+      playBtn.disabled = true;
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        trackSub.textContent = "Ready — CNN-LSTM analysis active";
+        playBtn.disabled = false;
+        playBtn.textContent = "▶ Play";
+        startPlayback();
+      } catch (err) {
+        trackSub.textContent = "Error decoding audio: " + err.message;
+      }
     });
+
+    // ── Playback ──────────────────────────────────────────────
+    function startPlayback() {
+      if (!audioBuffer) return;
+      if (sourceNode) { sourceNode.disconnect(); }
+      sourceNode = audioCtx.createBufferSource();
+      sourceNode.buffer = audioBuffer;
+      sourceNode.connect(analyser);
+      sourceNode.start(0, pausedAt);
+      startedAt = audioCtx.currentTime - pausedAt;
+      isPlaying = true;
+      playBtn.textContent = "⏸ Pause";
+      sourceNode.onended = () => {
+        if (isPlaying) { pausedAt = 0; isPlaying = false; playBtn.textContent = "▶ Play"; }
+      };
+    }
+
+    function pausePlayback() {
+      if (!isPlaying) return;
+      pausedAt = audioCtx.currentTime - startedAt;
+      sourceNode.stop();
+      isPlaying = false;
+      playBtn.textContent = "▶ Play";
+    }
+
+    function stopAll() {
+      if (sourceNode) { try { sourceNode.stop(); } catch(e){} sourceNode = null; }
+      if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+      isPlaying = false; isMicActive = false;
+      pausedAt = 0;
+      micBtn.textContent = "🎙 Mic";
+      micBtn.classList.remove("active");
+    }
+
+    playBtn.addEventListener("click", () => {
+      if (!audioBuffer) return;
+      audioCtx.resume();
+      isPlaying ? pausePlayback() : startPlayback();
+    });
+
+    // ── Microphone ────────────────────────────────────────────
+    micBtn.addEventListener("click", async () => {
+      if (isMicActive) {
+        stopAll();
+        trackName.textContent = "No audio loaded";
+        trackSub.textContent = "CNN-LSTM emotion model active";
+        playBtn.disabled = true;
+        return;
+      }
+      stopAll();
+      initAudio();
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const micSource = audioCtx.createMediaStreamSource(micStream);
+        micSource.connect(analyser);
+        isMicActive = true;
+        micBtn.textContent = "⏹ Stop Mic";
+        micBtn.classList.add("active");
+        trackName.textContent = "Live microphone input";
+        trackSub.textContent = "Real-time CNN-LSTM emotion detection active";
+        playBtn.disabled = true;
+      } catch (err) {
+        trackSub.textContent = "Mic error: " + err.message;
+      }
+    });
+
+    // ── Emotion override buttons ──────────────────────────────
+    document.querySelectorAll(".e-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const emotion = btn.dataset.emotion;
+        if (overrideEmotion === emotion) {
+          overrideEmotion = null;
+          btn.classList.remove("active");
+          trackSub.textContent = "Auto emotion detection active";
+        } else {
+          document.querySelectorAll(".e-btn").forEach(b => b.classList.remove("active"));
+          overrideEmotion = emotion;
+          btn.classList.add("active");
+          trackSub.textContent = `Emotion locked: ${emotion.toUpperCase()}`;
+          // Send override to server
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ override_emotion: emotion }));
+          }
+        }
+      });
+    });
+
+    // ── Progress bar ──────────────────────────────────────────
+    function updateProgress() {
+      if (isPlaying && audioBuffer) {
+        const current = audioCtx.currentTime - startedAt;
+        const total = audioBuffer.duration;
+        const pct = Math.min(100, (current / total) * 100);
+        progFill.style.width = pct + "%";
+        const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+        progTime.textContent = `${fmt(current)} / ${fmt(total)}`;
+      }
+      requestAnimationFrame(updateProgress);
+    }
+    updateProgress();
+
+    // Click progress bar to seek
+    document.getElementById("progressBar").addEventListener("click", (e) => {
+      if (!audioBuffer) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const pct = (e.clientX - rect.left) / rect.width;
+      pausedAt = pct * audioBuffer.duration;
+      if (isPlaying) { sourceNode.stop(); startPlayback(); }
+    });
+
+    // ── Audio amplitude for beat reactivity ───────────────────
+    function getAmplitude() {
+      if (!analyser) return 0;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      const sum = data.reduce((a, b) => a + b, 0);
+      return sum / data.length / 128;
+    }
+
+    // Send amplitude to server every 100ms
+    setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        const amp = getAmplitude();
+        ws.send(JSON.stringify({ amplitude: amp }));
+      }
+    }, 100);
+
+    // ── Update HUD from WS state ──────────────────────────────
+    const EMOTION_COLORS = {
+      happy: "#fbbf24", sad: "#60a5fa", calm: "#a78bfa",
+      angry: "#f87171", energetic: "#34d399"
+    };
+
+    const _origOnMessage = window._wsOnMessage;
+    function onStateUpdate(data) {
+      if (!data.emotion) return;
+      const col = EMOTION_COLORS[data.emotion] || "#a78bfa";
+      emotionLbl.textContent = data.emotion.toUpperCase();
+      emotionLbl.style.color = col;
+      const conf = Math.round((data.confidence || 0.8) * 100);
+      confFill.style.width = conf + "%";
+      confFill.style.background = col;
+      confText.textContent = conf + "% confidence";
+    }
+
+    // ── WebSocket status display ──────────────────────────────
+    function updateWsStatus(status) {
+      wsStatusEl.textContent = "ws: " + status;
+      statusDot.className = status === "open" ? "connected" : status === "closed" ? "error" : "";
+    }
+
+    // Patch ws_client.js connection hooks
+    const _checkWs = setInterval(() => {
+      if (typeof ws !== "undefined") {
+        clearInterval(_checkWs);
+        const origOnOpen = ws.onopen;
+        const origOnClose = ws.onclose;
+        const origOnMsg = ws.onmessage;
+        ws.onopen = (e) => { updateWsStatus("open"); if(origOnOpen) origOnOpen(e); };
+        ws.onclose = (e) => { updateWsStatus("closed"); if(origOnClose) origOnClose(e); };
+        ws.onmessage = (e) => {
+          if(origOnMsg) origOnMsg(e);
+          try { onStateUpdate(JSON.parse(e.data)); } catch(_){}
+        };
+      }
+    }, 100);
   </script>
 </body>
 </html>
