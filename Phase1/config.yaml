@@ -1,0 +1,49 @@
+# ─────────────────────────────────────────────
+#  Neural Network Music Visualizer – Phase 1
+#  Audio Pipeline Configuration
+# ─────────────────────────────────────────────
+
+audio:
+  sample_rate: 22050          # Hz — standard for music analysis
+  channels: 1                 # mono
+  bit_depth: 16
+  chunk_size: 1024            # frames per PyAudio buffer read
+
+preprocessing:
+  frame_length: 2048          # STFT window size (samples)
+  hop_length: 512             # STFT hop (samples) → ~23 ms steps at 22 050 Hz
+  window_fn: hann
+  top_db: 80                  # dynamic range for power-to-dB clipping
+  norm_target_db: -20.0       # RMS normalisation target (dBFS)
+  silence_threshold_db: -60   # frames quieter than this are treated as silence
+
+segmentation:
+  window_sec: 3.0             # analysis window length (seconds)
+  overlap: 0.5                # 50 % overlap between consecutive windows
+  min_duration_sec: 1.0       # audio shorter than this is rejected
+
+features:
+  mfcc:
+    n_mfcc: 40                # number of MFCC coefficients
+    include_delta: true       # append first-order delta coefficients
+    include_delta2: true      # append second-order delta coefficients
+  chroma:
+    n_chroma: 12              # one bin per semitone
+    norm: inf                 # L-inf normalisation
+  spectral_contrast:
+    n_bands: 6                # frequency sub-bands
+    fmin: 200.0               # lowest sub-band centre (Hz)
+  spectral:
+    include_centroid: true
+    include_bandwidth: true
+    include_rolloff: true
+    rolloff_percent: 0.85
+  tempo_energy:
+    include_tempo: true
+    include_rms_energy: true
+    include_zcr: true         # zero-crossing rate
+
+output:
+  save_dir: features/cache
+  format: npz                 # numpy compressed archive
+  verbose: true

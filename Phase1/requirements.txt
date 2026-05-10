@@ -1,0 +1,10 @@
+librosa==0.10.1
+numpy==1.26.4
+scipy==1.13.0
+soundfile==0.12.1
+pyaudio==0.2.14
+matplotlib==3.9.0
+pytest==8.2.0
+pytest-cov==5.0.0
+tqdm==4.66.4
+pyyaml==6.0.1

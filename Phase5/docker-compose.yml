@@ -1,0 +1,11 @@
+services:
+  visualizer:
+    build:
+      context: ..
+      dockerfile: phase5/Dockerfile
+    ports:
+      - "8765:8765"
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

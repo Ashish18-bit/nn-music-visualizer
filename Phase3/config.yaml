@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────
+#  Neural Network Music Visualizer – Phase 3
+#  Emotion-to-Visual Mapping Configuration
+# ─────────────────────────────────────────────────────────────
+
+emotions:
+  classes: [happy, sad, calm, angry, energetic]
+  num_classes: 5
+
+interpolation:
+  # Exponential moving average smoothing factor
+  # Lower = smoother but slower to respond (0.0–1.0)
+  ema_alpha: 0.15
+  # Minimum confidence to commit to a single emotion
+  # Below this, blend top-2 emotions proportionally
+  confidence_threshold: 0.50
+  # How many frames of history to keep for stability
+  history_len: 8
+  # Minimum time (seconds) before emotion can switch
+  min_dwell_sec: 0.5
+
+visual:
+  # Canvas target FPS (used for dwell timing)
+  fps: 60
+  # Particle count range across all emotions
+  particle_min: 30
+  particle_max: 200
+  # Speed range
+  speed_min: 0.3
+  speed_max: 4.0
+  # Geometry complexity range (0=none, 1=max)
+  geo_min: 0.1
+  geo_max: 1.0
+
+output:
+  # VisualState is serialised to this format for the renderer
+  format: dict       # dict | json | numpy
+  verbose: false

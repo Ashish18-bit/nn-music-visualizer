@@ -1,0 +1,6 @@
+[build]
+dockerfilePath = "Phase5/Dockerfile"
+
+[deploy]
+startCommand = "python phase4/main.py --mode web --config phase4/config.yaml"
+restartPolicyType = "always"

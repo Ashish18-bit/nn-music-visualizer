@@ -1,0 +1,13 @@
+# Large model files
+Phase2/checkpoints/
+Phase2/data/raw/
+Phase2/logs/
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+
+# Generated data
+Phase1/features/cache/
+Phase1/sample_data/

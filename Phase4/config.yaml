@@ -1,0 +1,48 @@
+# ─────────────────────────────────────────────────────────────
+#  Neural Network Music Visualizer – Phase 4
+#  Real-Time Rendering Engine Configuration
+# ─────────────────────────────────────────────────────────────
+
+renderer:
+  width: 1280
+  height: 720
+  fps: 60
+  fullscreen: false
+  title: "NN Music Visualizer"
+  background_color: [8, 8, 15]      # RGB dark base
+
+particles:
+  max_count: 300                    # absolute max particles on screen
+  min_count: 20
+  base_size_px: 6                   # base radius in pixels
+  max_size_px: 18
+  trail_length: 0                   # 0 = no trails (use background blur instead)
+
+geometry:
+  max_rings: 8
+  base_radius: 80                   # innermost ring radius (px)
+  ring_spacing: 45                  # px between rings
+  radial_bar_count: 64              # number of frequency bars
+  radial_bar_min_height: 4          # px
+  radial_bar_max_height: 120        # px
+
+background:
+  blur_passes: 2                    # number of box-blur passes per frame
+  bloom_radius: 12                  # bloom glow spread (px)
+  bloom_passes: 2
+
+server:
+  host: "0.0.0.0"
+  port: 8765
+  ws_path: "/ws"
+  broadcast_hz: 60                  # how often to push VisualState to clients
+  max_connections: 8
+
+visual_params:
+  # Scaling from normalised [0,1] VisualState to concrete renderer values
+  particle_count_range: [20, 300]
+  particle_speed_range: [0.5, 6.0]   # px per frame
+  particle_size_range: [3, 18]        # px radius
+  geo_rotation_speed_range: [0.002, 0.04]   # radians per frame
+  geo_ring_count_range: [1, 8]
+  geo_sides_range: [3, 12]
