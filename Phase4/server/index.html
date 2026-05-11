@@ -200,6 +200,7 @@
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 2048;
         analyser.connect(audioCtx.destination);
+        window.setLocalAnalyser(analyser);
       }
     }
 
