@@ -1,28 +1,16 @@
 """
-server/ws_server.py
-───────────────────
-FastAPI WebSocket server that broadcasts VisualState JSON to
-connected browser clients at the configured Hz rate.
+ws_server.py  (rebuilt)
+───────────────────────
+Two WebSocket endpoints:
 
-The server runs in a background thread alongside the render engine.
-Browser clients connect to ws://host:port/ws and receive a stream
-of JSON frames they can use to drive a Three.js or Canvas renderer.
+  GET  /          → health check
+  GET  /state     → current VisualState snapshot
+  WS   /ws        → browser receives VisualState JSON stream
+  WS   /audio     → browser sends raw PCM audio chunks here
 
-Endpoints
-─────────
-GET  /          → health check (JSON)
-GET  /state     → current VisualState as JSON (REST snapshot)
-WS   /ws        → real-time VisualState stream
-
-JSON frame format (sent to each WS client each broadcast tick):
-{
-  "frame": 42,
-  "emotion": "happy",
-  "confidence": 0.87,
-  "color_hue": 42.0,
-  "color_saturation": 0.92,
-  ...  (all RendererState fields flattened)
-}
+Flow:
+  Browser mic/file → /audio WS → AudioProcessor →
+  CNN-LSTM → Phase3 mapper → /ws WS → browser canvas
 """
 
 from __future__ import annotations
@@ -39,24 +27,17 @@ logger = logging.getLogger(__name__)
 try:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.responses import JSONResponse
+    from fastapi.middleware.cors import CORSMiddleware
     import uvicorn
     _FASTAPI_AVAILABLE = True
 except ImportError:
     _FASTAPI_AVAILABLE = False
-    FastAPI = None
-    WebSocket = None
-    WebSocketDisconnect = Exception
 
 from renderer.visual_types import RendererState
+from server.audio_processor import AudioProcessor
 
-
-# ─────────────────────────────────────────────────────────────
-#  ConnectionManager
-# ─────────────────────────────────────────────────────────────
 
 class ConnectionManager:
-    """Tracks active WebSocket connections and broadcasts to all."""
-
     def __init__(self) -> None:
         self._connections: Set = set()
         self._lock = asyncio.Lock()
@@ -65,17 +46,12 @@ class ConnectionManager:
         await ws.accept()
         async with self._lock:
             self._connections.add(ws)
-        logger.info("Client connected. Total: %d", len(self._connections))
 
     async def disconnect(self, ws) -> None:
         async with self._lock:
             self._connections.discard(ws)
-        logger.info("Client disconnected. Total: %d", len(self._connections))
 
     async def broadcast(self, message: str) -> None:
-        """Send message to all connected clients. Drops dead connections."""
-        if not self._connections:
-            return
         dead = set()
         async with self._lock:
             targets = set(self._connections)
@@ -89,94 +65,85 @@ class ConnectionManager:
                 self._connections -= dead
 
     @property
-    def connection_count(self) -> int:
+    def count(self) -> int:
         return len(self._connections)
 
 
-# ─────────────────────────────────────────────────────────────
-#  VisualStateServer
-# ─────────────────────────────────────────────────────────────
-
 class VisualStateServer:
-    """
-    FastAPI server that streams VisualState to browser clients.
-
-    Parameters
-    ----------
-    host         : bind address
-    port         : bind port
-    broadcast_hz : frames per second to push to WS clients
-    max_connections : hard limit on simultaneous clients
-    """
-
     def __init__(
         self,
         host: str = "0.0.0.0",
         port: int = 8765,
-        broadcast_hz: int = 60,
+        broadcast_hz: int = 30,
         max_connections: int = 8,
+        checkpoint_path: Optional[str] = None,
     ) -> None:
         self.host = host
         self.port = port
         self.broadcast_hz = broadcast_hz
         self.max_connections = max_connections
 
-        self._current_state: RendererState = RendererState()
-        self._frame_count: int = 0
+        self._current_state = RendererState()
+        self._current_probs = {}
+        self._frame_count = 0
         self._lock = threading.Lock()
+        self._manager = ConnectionManager()
         self._server_thread: Optional[threading.Thread] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._manager = ConnectionManager()
+
+        # Audio processor — runs CNN-LSTM inference
+        self._processor = AudioProcessor(
+            checkpoint_path=checkpoint_path,
+            on_state_update=self._on_new_visual_state,
+            inference_interval_sec=1.0,
+        )
 
         if _FASTAPI_AVAILABLE:
             self._app = self._build_app()
         else:
             self._app = None
 
-    # ── public ──────────────────────────────────────────────
+    # ── called by AudioProcessor when new emotion detected ───
+
+    def _on_new_visual_state(self, vs, probs: dict) -> None:
+        """
+        Callback from inference thread → convert VisualState to
+        RendererState and store for broadcasting.
+        """
+        cfg = {
+            "visual_params": {
+                "particle_count_range": [20, 300],
+                "particle_speed_range": [0.5, 6.0],
+                "particle_size_range": [3, 18],
+                "geo_rotation_speed_range": [0.002, 0.04],
+            }
+        }
+        try:
+            rs = RendererState.from_visual_state(vs, cfg)
+            with self._lock:
+                self._current_state = rs
+                self._current_probs = probs
+                self._frame_count += 1
+        except Exception as e:
+            logger.error("VisualState conversion failed: %s", e)
 
     def update_state(self, rs: RendererState) -> None:
-        """Thread-safe: update the state that will be broadcast."""
         with self._lock:
             self._current_state = rs
             self._frame_count += 1
 
-    def start_background(self) -> None:
-        """Start the server in a daemon background thread."""
-        if not _FASTAPI_AVAILABLE:
-            logger.warning("FastAPI not available — server not started")
-            return
-        self._server_thread = threading.Thread(
-            target=self._run_server,
-            daemon=True,
-            name="ws-server",
-        )
-        self._server_thread.start()
-        logger.info("WebSocket server starting on ws://%s:%d/ws",
-                    self.host, self.port)
-
-    def stop(self) -> None:
-        """Signal the server to stop."""
-        if self._loop:
-            self._loop.call_soon_threadsafe(self._loop.stop)
-
-    @property
-    def connection_count(self) -> int:
-        return self._manager.connection_count
-
-    @property
-    def frame_count(self) -> int:
-        return self._frame_count
-
-    @property
-    def app(self):
-        """Return the FastAPI app instance (for testing with TestClient)."""
-        return self._app
-
-    # ── private: FastAPI app ─────────────────────────────────
+    # ── FastAPI app ──────────────────────────────────────────
 
     def _build_app(self):
-        app = FastAPI(title="NN Music Visualizer", version="1.0")
+        app = FastAPI(title="NN Music Visualizer", version="2.0")
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
         manager = self._manager
 
         @app.get("/")
@@ -184,12 +151,14 @@ class VisualStateServer:
             with self._lock:
                 rs = self._current_state
                 frame = self._frame_count
+                probs = self._current_probs
             return JSONResponse({
                 "status": "ok",
                 "emotion": rs.emotion,
-                "confidence": rs.confidence,
+                "confidence": round(rs.confidence, 3),
                 "frame": frame,
-                "connections": manager.connection_count,
+                "connections": manager.count,
+                "probs": {k: round(v, 3) for k, v in probs.items()},
             })
 
         @app.get("/state")
@@ -199,32 +168,63 @@ class VisualStateServer:
                 frame = self._frame_count
             return JSONResponse(self._serialise(rs, frame))
 
+        # ── Visual state WebSocket (browser receives) ─────────
         @app.websocket("/ws")
-        async def websocket_endpoint(ws: WebSocket):
-            if manager.connection_count >= self.max_connections:
+        async def ws_visual(ws: WebSocket):
+            if manager.count >= self.max_connections:
                 await ws.close(code=1008)
                 return
             await manager.connect(ws)
             try:
-                # Start broadcaster if not already running
                 asyncio.ensure_future(self._broadcaster())
-                # Keep connection alive by reading (client may send pings)
                 while True:
                     try:
-                        await asyncio.wait_for(ws.receive_text(), timeout=30)
+                        await asyncio.wait_for(
+                            ws.receive_text(), timeout=30
+                        )
                     except asyncio.TimeoutError:
                         pass
-            except WebSocketDisconnect:
-                pass
-            except Exception:
+            except (WebSocketDisconnect, Exception):
                 pass
             finally:
                 await manager.disconnect(ws)
 
+        # ── Audio WebSocket (browser sends PCM) ───────────────
+        @app.websocket("/audio")
+        async def ws_audio(ws: WebSocket):
+            await ws.accept()
+            client_sr = 44100
+            logger.info("Audio client connected")
+            try:
+                while True:
+                    try:
+                        # Receive either text (metadata) or binary (PCM)
+                        data = await asyncio.wait_for(
+                            ws.receive(), timeout=10
+                        )
+
+                        if "text" in data:
+                            # Metadata: {"sampleRate": 44100}
+                            meta = json.loads(data["text"])
+                            client_sr = meta.get("sampleRate", 44100)
+                            await ws.send_text(json.dumps({"status": "ready"}))
+
+                        elif "bytes" in data:
+                            # Raw PCM Float32 audio chunk
+                            self._processor.ingest_pcm(
+                                data["bytes"], client_sr
+                            )
+
+                    except asyncio.TimeoutError:
+                        # Send keepalive
+                        await ws.send_text(json.dumps({"status": "alive"}))
+
+            except (WebSocketDisconnect, Exception) as e:
+                logger.info("Audio client disconnected: %s", e)
+
         return app
 
     async def _broadcaster(self) -> None:
-        """Coroutine: push state to all connected WS clients at broadcast_hz."""
         interval = 1.0 / max(1, self.broadcast_hz)
         while True:
             t0 = asyncio.get_event_loop().time()
@@ -237,7 +237,6 @@ class VisualStateServer:
             await asyncio.sleep(max(0, interval - elapsed))
 
     def _serialise(self, rs: RendererState, frame: int) -> dict:
-        """Convert RendererState to a flat JSON-serialisable dict."""
         r, g, b = rs.primary_color
         sr, sg, sb = rs.secondary_color
         return {
@@ -265,18 +264,39 @@ class VisualStateServer:
             "beat_pulse": round(rs.beat_pulse, 3),
         }
 
-    def _run_server(self) -> None:
-        """Blocking: run the uvicorn server (called in background thread)."""
+    def start_background(self) -> None:
         if not _FASTAPI_AVAILABLE:
             return
+        self._processor.start()
+        self._server_thread = threading.Thread(
+            target=self._run_server, daemon=True, name="ws-server"
+        )
+        self._server_thread.start()
+        logger.info("Server on ws://%s:%d", self.host, self.port)
+
+    def stop(self) -> None:
+        self._processor.stop()
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._loop.stop)
+
+    @property
+    def connection_count(self) -> int:
+        return self._manager.count
+
+    @property
+    def frame_count(self) -> int:
+        return self._frame_count
+
+    @property
+    def app(self):
+        return self._app
+
+    def _run_server(self) -> None:
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
         config = uvicorn.Config(
-            self._app,
-            host=self.host,
-            port=self.port,
-            loop="asyncio",
-            log_level="warning",
+            self._app, host=self.host, port=self.port,
+            loop="asyncio", log_level="warning",
         )
         server = uvicorn.Server(config)
         self._loop.run_until_complete(server.serve())
@@ -287,6 +307,7 @@ class VisualStateServer:
         return cls(
             host=s.get("host", "0.0.0.0"),
             port=s.get("port", 8765),
-            broadcast_hz=s.get("broadcast_hz", 60),
+            broadcast_hz=s.get("broadcast_hz", 30),
             max_connections=s.get("max_connections", 8),
+            checkpoint_path=s.get("checkpoint_path", None),
         )

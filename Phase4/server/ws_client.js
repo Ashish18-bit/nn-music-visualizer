@@ -366,3 +366,43 @@ function connect() {
   };
 }
 connect();
+// ── Audio streaming to server ─────────────────────────────────
+let audioWs = null;
+const AUDIO_WS_URL = WS_URL.replace("/ws", "/audio");
+
+function connectAudioWs() {
+  audioWs = new WebSocket(AUDIO_WS_URL);
+  audioWs.binaryType = "arraybuffer";
+
+  audioWs.onopen = () => {
+    console.log("[NN Viz] Audio WS connected");
+  };
+
+  audioWs.onclose = () => {
+    setTimeout(connectAudioWs, 2000);
+  };
+}
+connectAudioWs();
+
+// Called by index.html when audio context is ready
+window.setLocalAnalyser = function(analyserNode, sampleRate) {
+  localAnalyser = analyserNode;
+  localFreqData = new Uint8Array(analyserNode.frequencyBinCount);
+
+  // Tell server the sample rate
+  if (audioWs && audioWs.readyState === WebSocket.OPEN) {
+    audioWs.send(JSON.stringify({ sampleRate: sampleRate || 44100 }));
+  }
+
+  // Stream audio chunks to server every 250ms
+  const scriptProcessor = analyserNode.context.createScriptProcessor(4096, 1, 1);
+  scriptProcessor.onaudioprocess = (e) => {
+    if (audioWs && audioWs.readyState === WebSocket.OPEN) {
+      const inputData = e.inputBuffer.getChannelData(0);
+      const pcm = new Float32Array(inputData);
+      audioWs.send(pcm.buffer);
+    }
+  };
+  analyserNode.connect(scriptProcessor);
+  scriptProcessor.connect(analyserNode.context.destination);
+};

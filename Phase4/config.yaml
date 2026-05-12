@@ -37,6 +37,7 @@ server:
   ws_path: "/ws"
   broadcast_hz: 60                  # how often to push VisualState to clients
   max_connections: 8
+  checkpoint_path: "/app/phase2/checkpoints/best_model.pt"
 
 visual_params:
   # Scaling from normalised [0,1] VisualState to concrete renderer values
