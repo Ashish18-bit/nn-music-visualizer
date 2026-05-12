@@ -1,396 +1,851 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>NN Music Visualizer</title>
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: #08080f; overflow: hidden; font-family: monospace; color: white; }
-    canvas { display: block; position: fixed; inset: 0; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
-    /* ── Control Panel ── */
-    #panel {
-      position: fixed; bottom: 0; left: 0; right: 0;
-      background: rgba(8,8,15,0.92);
-      border-top: 1px solid rgba(255,255,255,0.08);
-      padding: 14px 20px;
-      display: flex; align-items: center; gap: 16px;
-      z-index: 100; backdrop-filter: blur(10px);
+    :root {
+      --accent: #7c3aed;
+      --accent-light: #a78bfa;
+      --bg: #07070e;
+      --panel: rgba(10,10,20,0.85);
+      --border: rgba(255,255,255,0.07);
+      --text: rgba(255,255,255,0.9);
+      --muted: rgba(255,255,255,0.4);
+      --dim: rgba(255,255,255,0.15);
+    }
+
+    * { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+      background: var(--bg);
+      font-family: 'Inter', sans-serif;
+      color: var(--text);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    /* ── Canvas ─────────────────────────────── */
+    #viz {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ── Glass panel base ───────────────────── */
+    .glass {
+      background: var(--panel);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+    }
+
+    /* ── Top left: emotion display ──────────── */
+    #emotionDisplay {
+      position: fixed;
+      top: 20px; left: 20px;
+      padding: 16px 20px;
+      border-radius: 16px;
+      z-index: 100;
+      min-width: 200px;
+    }
+
+    #emotionBadge {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    #emotionDot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--accent-light);
+      animation: breathe 2s ease infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes breathe {
+      0%,100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.4); opacity: 0.6; }
+    }
+
+    #emotionName {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 3px;
+      color: var(--accent-light);
+      transition: color 0.8s ease;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Confidence arc */
+    #confArc { margin: 6px 0 8px; }
+
+    /* Probability bars */
+    #probBars { display: flex; flex-direction: column; gap: 4px; }
+
+    .prob-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .prob-label {
+      width: 60px;
+      color: var(--muted);
+      text-transform: capitalize;
+    }
+
+    .prob-track {
+      flex: 1;
+      height: 3px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .prob-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.8s cubic-bezier(0.4,0,0.2,1),
+                  background 0.8s ease;
+      width: 0%;
+    }
+
+    .prob-val {
+      width: 30px;
+      text-align: right;
+      color: var(--muted);
+    }
+
+    /* ── Top right: connection + fps ───────── */
+    #topRight {
+      position: fixed;
+      top: 20px; right: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 8px;
+      z-index: 100;
+    }
+
+    #connStatus {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+    }
+
+    #connDot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #374151;
+      transition: background 0.3s;
+    }
+
+    #connDot.on { background: #10b981; animation: breathe 2s infinite; }
+    #connDot.off { background: #ef4444; }
+
+    #fpsDisplay {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      padding: 4px 10px;
+    }
+
+    /* ── Waveform bar (top centre) ──────────── */
+    #waveBar {
+      position: fixed;
+      top: 0; left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 40px;
+      padding: 0 20px;
+    }
+
+    .wave-bar {
+      width: 3px;
+      border-radius: 2px 2px 0 0;
+      transition: height 0.05s ease;
+      opacity: 0.7;
+    }
+
+    /* ── Bottom panel ───────────────────────── */
+    #bottomPanel {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      padding: 16px 24px;
+      border-radius: 20px 20px 0 0;
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Track row */
+    #trackRow {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #albumArt {
+      width: 44px; height: 44px;
+      border-radius: 10px;
+      background: rgba(124,58,237,0.2);
+      border: 1px solid rgba(124,58,237,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    #albumArt.playing {
+      animation: spin 8s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    #trackMeta { flex: 1; min-width: 0; }
+
+    #trackTitle {
+      font-size: 14px;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: var(--text);
+    }
+
+    #trackStatus {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Controls row */
+    #controlRow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
     }
 
     .btn {
-      padding: 8px 18px; border-radius: 8px; border: none;
-      font-family: monospace; font-size: 13px; cursor: pointer;
-      transition: all 0.2s; font-weight: 500;
+      border: none;
+      border-radius: 10px;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
     }
-    .btn-primary {
-      background: #7c3aed; color: white;
-    }
-    .btn-primary:hover { background: #6d28d9; }
-    .btn-primary:disabled { background: #3b1f6e; cursor: not-allowed; }
 
-    .btn-secondary {
-      background: rgba(255,255,255,0.08);
-      color: rgba(255,255,255,0.8);
-      border: 1px solid rgba(255,255,255,0.12);
+    .btn:active { transform: scale(0.96); }
+
+    .btn-icon {
+      width: 40px; height: 40px;
+      border-radius: 12px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 16px;
+      justify-content: center;
     }
-    .btn-secondary:hover { background: rgba(255,255,255,0.15); }
-    .btn-secondary.active {
-      background: rgba(239,68,68,0.2);
-      border-color: rgba(239,68,68,0.5);
+
+    .btn-icon:hover {
+      background: rgba(255,255,255,0.12);
+      color: var(--text);
+    }
+
+    .btn-play {
+      width: 48px; height: 48px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: white;
+      font-size: 18px;
+      justify-content: center;
+      box-shadow: 0 0 20px rgba(124,58,237,0.4);
+    }
+
+    .btn-play:hover {
+      background: #6d28d9;
+      box-shadow: 0 0 30px rgba(124,58,237,0.6);
+    }
+
+    .btn-play:disabled {
+      background: #2d1b69;
+      box-shadow: none;
+      cursor: not-allowed;
+      opacity: 0.5;
+    }
+
+    .btn-upload {
+      padding: 0 16px;
+      height: 40px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .btn-upload:hover {
+      background: rgba(255,255,255,0.12);
+      color: var(--text);
+    }
+
+    .btn-mic {
+      padding: 0 16px;
+      height: 40px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .btn-mic:hover {
+      background: rgba(255,255,255,0.12);
+      color: var(--text);
+    }
+
+    .btn-mic.recording {
+      background: rgba(239,68,68,0.15);
+      border-color: rgba(239,68,68,0.4);
       color: #f87171;
+      animation: pulse-border 1.5s ease infinite;
+    }
+
+    @keyframes pulse-border {
+      0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.3); }
+      50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+    }
+
+    /* Progress */
+    #progressRow {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #progressWrap {
+      flex: 1;
+      height: 4px;
+      background: rgba(255,255,255,0.08);
+      border-radius: 4px;
+      cursor: pointer;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #progressFill {
+      height: 100%;
+      border-radius: 4px;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.5s linear,
+                  background 0.8s ease;
+    }
+
+    #progressWrap:hover #progressFill {
+      filter: brightness(1.2);
+    }
+
+    .time-label {
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--muted);
+      flex-shrink: 0;
+    }
+
+    /* Emotion pill row */
+    #emotionRow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding-top: 4px;
+    }
+
+    #emotionRowLabel {
+      font-size: 10px;
+      color: var(--muted);
+      margin-right: 4px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      flex-shrink: 0;
+    }
+
+    .e-pill {
+      padding: 5px 14px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.04);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .e-pill:hover {
+      background: rgba(255,255,255,0.1);
+      color: var(--text);
+    }
+
+    .e-pill.active {
+      border-color: var(--ec);
+      color: var(--ec);
+      background: color-mix(in srgb, var(--ec) 12%, transparent);
+      box-shadow: 0 0 12px color-mix(in srgb, var(--ec) 20%, transparent);
     }
 
     #fileInput { display: none; }
 
-    .upload-label {
-      padding: 8px 18px; border-radius: 8px;
-      border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.06);
-      color: rgba(255,255,255,0.8);
-      font-family: monospace; font-size: 13px;
-      cursor: pointer; transition: all 0.2s;
+    /* ── Volume/amplitude ring ──────────────── */
+    #ampRing {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 50;
+      transition: opacity 0.3s;
+      opacity: 0;
     }
-    .upload-label:hover { background: rgba(255,255,255,0.12); }
 
-    .track-info { flex: 1; min-width: 0; }
-    .track-name {
-      font-size: 13px; font-weight: 500;
-      color: rgba(255,255,255,0.85);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .track-sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 3px; }
-
-    .progress-wrap { display: flex; align-items: center; gap: 8px; margin-top: 5px; }
-    .progress-bar {
-      flex: 1; height: 3px; background: rgba(255,255,255,0.1);
-      border-radius: 2px; overflow: hidden; cursor: pointer;
-    }
-    .progress-fill { height: 100%; background: #7c3aed; border-radius: 2px; width: 0%; transition: width 0.5s linear; }
-    .progress-time { font-size: 11px; color: rgba(255,255,255,0.35); }
-
-    /* ── Emotion override buttons ── */
-    #emotionBtns {
-      display: flex; gap: 6px; flex-shrink: 0;
-    }
-    .e-btn {
-      padding: 6px 12px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.12);
-      background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.5);
-      font-family: monospace; font-size: 11px; cursor: pointer; transition: all 0.2s;
-    }
-    .e-btn:hover { background: rgba(255,255,255,0.1); color: white; }
-    .e-btn.active { border-color: var(--ec); color: var(--ec); background: color-mix(in srgb, var(--ec) 15%, transparent); }
-
-    /* ── Status dot ── */
-    #statusDot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #374151; flex-shrink: 0;
-      transition: background 0.3s;
-    }
-    #statusDot.connected { background: #10b981; animation: pulse 2s infinite; }
-    #statusDot.error { background: #ef4444; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-
-    /* ── Top HUD ── */
-    #hud {
-      position: fixed; top: 16px; left: 16px;
-      z-index: 100; pointer-events: none;
-    }
-    #emotionLabel {
-      font-size: 22px; font-weight: 700; letter-spacing: 2px;
-      color: #a78bfa; transition: color 0.6s;
-    }
-    #confBar {
-      display: flex; align-items: center; gap: 8px; margin-top: 6px;
-    }
-    #confFill {
-      height: 4px; border-radius: 2px; background: #7c3aed;
-      transition: width 0.5s, background 0.6s;
-    }
-    #confTrack {
-      width: 100px; height: 4px; background: rgba(255,255,255,0.1);
-      border-radius: 2px; overflow: hidden;
-    }
-    #confText { font-size: 11px; color: rgba(255,255,255,0.35); }
-
-    #wsStatus {
-      position: fixed; top: 16px; right: 16px;
-      font-size: 11px; color: rgba(255,255,255,0.2);
-      z-index: 100; pointer-events: none;
-    }
+    #ampRing.visible { opacity: 1; }
   </style>
 </head>
 <body>
-  <canvas id="viz"></canvas>
 
-  <!-- Top HUD -->
-  <div id="hud">
-    <div id="emotionLabel">CALM</div>
-    <div id="confBar">
-      <div id="confTrack"><div id="confFill" style="width:80%"></div></div>
-      <div id="confText">80% confidence</div>
+<canvas id="viz"></canvas>
+
+<!-- Waveform bar top -->
+<div id="waveBar"></div>
+
+<!-- Emotion display top left -->
+<div id="emotionDisplay" class="glass">
+  <div id="emotionBadge">
+    <div id="emotionDot"></div>
+    <div id="emotionName">CALM</div>
+  </div>
+
+  <svg id="confArc" width="160" height="36" viewBox="0 0 160 36">
+    <path d="M8 32 A72 72 0 0 1 152 32"
+      fill="none" stroke="rgba(255,255,255,0.06)"
+      stroke-width="5" stroke-linecap="round"/>
+    <path id="confPath" d="M8 32 A72 72 0 0 1 152 32"
+      fill="none" stroke="#7c3aed"
+      stroke-width="5" stroke-linecap="round"
+      stroke-dasharray="226" stroke-dashoffset="100"
+      style="transition: stroke-dashoffset 0.8s ease, stroke 0.8s ease"/>
+    <text x="80" y="28" text-anchor="middle"
+      font-size="11" font-family="JetBrains Mono"
+      fill="rgba(255,255,255,0.5)" id="confLabel">80%</text>
+  </svg>
+
+  <div id="probBars"></div>
+</div>
+
+<!-- Top right -->
+<div id="topRight">
+  <div id="connStatus" class="glass">
+    <div id="connDot"></div>
+    <span id="connText">connecting…</span>
+  </div>
+  <div id="fpsDisplay" class="glass">60 fps</div>
+</div>
+
+<!-- Bottom panel -->
+<div id="bottomPanel" class="glass">
+
+  <!-- Track info -->
+  <div id="trackRow">
+    <div id="albumArt">🎵</div>
+    <div id="trackMeta">
+      <div id="trackTitle">No audio loaded</div>
+      <div id="trackStatus">Upload a file or use your microphone to begin</div>
     </div>
   </div>
-  <div id="wsStatus">connecting…</div>
 
-  <!-- Bottom control panel -->
-  <div id="panel">
-    <div id="statusDot"></div>
+  <!-- Progress -->
+  <div id="progressRow">
+    <span class="time-label" id="timeLeft">0:00</span>
+    <div id="progressWrap">
+      <div id="progressFill"></div>
+    </div>
+    <span class="time-label" id="timeTotal">0:00</span>
+  </div>
 
-    <!-- Upload -->
-    <label class="upload-label" for="fileInput">⬆ Upload Audio</label>
-    <input type="file" id="fileInput" accept="audio/*" />
+  <!-- Controls -->
+  <div id="controlRow">
+    <label class="btn btn-upload" for="fileInput">
+      ⬆ Upload
+    </label>
+    <input type="file" id="fileInput" accept="audio/*"/>
 
-    <!-- Mic -->
-    <button class="btn btn-secondary" id="micBtn">🎙 Mic</button>
+    <button class="btn btn-mic" id="micBtn">🎙 Mic</button>
 
-    <!-- Play/Pause -->
-    <button class="btn btn-primary" id="playBtn" disabled>▶ Play</button>
+    <button class="btn btn-play" id="playBtn" disabled>▶</button>
 
-    <!-- Track info -->
-    <div class="track-info">
-      <div class="track-name" id="trackName">No audio loaded — upload a file or use mic</div>
-      <div class="progress-wrap">
-        <div class="progress-bar" id="progressBar">
-          <div class="progress-fill" id="progressFill"></div>
-        </div>
-        <span class="progress-time" id="progressTime">0:00 / 0:00</span>
+    <div style="flex:1"></div>
+
+    <!-- Emotion overrides -->
+    <div id="emotionRow">
+      <span id="emotionRowLabel">Override</span>
+      <button class="e-pill" style="--ec:#fbbf24" data-e="happy">Happy</button>
+      <button class="e-pill" style="--ec:#60a5fa" data-e="sad">Sad</button>
+      <button class="e-pill" style="--ec:#a78bfa" data-e="calm">Calm</button>
+      <button class="e-pill" style="--ec:#f87171" data-e="angry">Angry</button>
+      <button class="e-pill" style="--ec:#34d399" data-e="energetic">Energetic</button>
+    </div>
+  </div>
+
+</div>
+
+<script src="ws_client.js"></script>
+<script>
+// ── Emotion colour map ────────────────────────────────────────
+const EMOTION_COLORS = {
+  happy:     "#fbbf24",
+  sad:       "#60a5fa",
+  calm:      "#a78bfa",
+  angry:     "#f87171",
+  energetic: "#34d399",
+};
+
+const EMOTIONS = ["happy", "sad", "calm", "angry", "energetic"];
+
+// ── Build probability bars ────────────────────────────────────
+const probBarsEl = document.getElementById("probBars");
+EMOTIONS.forEach(e => {
+  probBarsEl.innerHTML += `
+    <div class="prob-row">
+      <span class="prob-label">${e}</span>
+      <div class="prob-track">
+        <div class="prob-fill" id="prob_${e}"
+          style="background:${EMOTION_COLORS[e]}"></div>
       </div>
-      <div class="track-sub" id="trackSub">CNN-LSTM emotion model active</div>
-    </div>
+      <span class="prob-val" id="probval_${e}">0%</span>
+    </div>`;
+});
 
-    <!-- Emotion override -->
-    <div id="emotionBtns">
-      <button class="e-btn" style="--ec:#fbbf24" data-emotion="happy">Happy</button>
-      <button class="e-btn" style="--ec:#60a5fa" data-emotion="sad">Sad</button>
-      <button class="e-btn" style="--ec:#a78bfa" data-emotion="calm">Calm</button>
-      <button class="e-btn" style="--ec:#f87171" data-emotion="angry">Angry</button>
-      <button class="e-btn" style="--ec:#34d399" data-emotion="energetic">Energetic</button>
-    </div>
-  </div>
+// ── Build waveform bars ───────────────────────────────────────
+const waveBarEl = document.getElementById("waveBar");
+for (let i = 0; i < 32; i++) {
+  const b = document.createElement("div");
+  b.className = "wave-bar";
+  b.id = `wb${i}`;
+  b.style.height = "4px";
+  b.style.background = "#7c3aed";
+  waveBarEl.appendChild(b);
+}
 
-  <script src="ws_client.js"></script>
-  <script>
-    // ── Audio engine ──────────────────────────────────────────
-    let audioCtx, analyser, sourceNode, audioBuffer;
-    let isPlaying = false;
-    let startedAt = 0;
-    let pausedAt = 0;
-    let micStream = null;
-    let isMicActive = false;
-    let overrideEmotion = null;
+// ── Audio engine ──────────────────────────────────────────────
+let audioCtx, analyser, sourceNode, audioBuffer;
+let isPlaying = false;
+let startedAt = 0, pausedAt = 0;
+let micStream = null;
+let isMicActive = false;
+let overrideEmotion = null;
 
-    const playBtn    = document.getElementById("playBtn");
-    const micBtn     = document.getElementById("micBtn");
-    const fileInput  = document.getElementById("fileInput");
-    const trackName  = document.getElementById("trackName");
-    const trackSub   = document.getElementById("trackSub");
-    const progFill   = document.getElementById("progressFill");
-    const progTime   = document.getElementById("progressTime");
-    const emotionLbl = document.getElementById("emotionLabel");
-    const confFill   = document.getElementById("confFill");
-    const confText   = document.getElementById("confText");
-    const wsStatusEl = document.getElementById("wsStatus");
-    const statusDot  = document.getElementById("statusDot");
+const playBtn    = document.getElementById("playBtn");
+const micBtn     = document.getElementById("micBtn");
+const fileInput  = document.getElementById("fileInput");
+const trackTitle = document.getElementById("trackTitle");
+const trackStatus= document.getElementById("trackStatus");
+const albumArt   = document.getElementById("albumArt");
+const progFill   = document.getElementById("progressFill");
+const timeLeft   = document.getElementById("timeLeft");
+const timeTotal  = document.getElementById("timeTotal");
 
-    function initAudio() {
-      if (!audioCtx) {
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 2048;
-        analyser.connect(audioCtx.destination);
-        window.setLocalAnalyser(analyser, audioCtx.sampleRate); 
-      }
+function fmt(s) {
+  return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+}
+
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser  = audioCtx.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.connect(audioCtx.destination);
+    // Wire to ws_client.js for audio streaming to server
+    if (window.setLocalAnalyser) {
+      window.setLocalAnalyser(analyser, audioCtx.sampleRate);
     }
+  }
+}
 
-    // ── File upload ───────────────────────────────────────────
-    fileInput.addEventListener("change", async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      stopAll();
-      initAudio();
-      trackName.textContent = file.name.replace(/\.[^.]+$/, "");
-      trackSub.textContent = "Decoding audio…";
-      playBtn.disabled = true;
+// ── File upload ───────────────────────────────────────────────
+fileInput.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  stopAll();
+  initAudio();
 
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-        trackSub.textContent = "Ready — CNN-LSTM analysis active";
-        playBtn.disabled = false;
-        playBtn.textContent = "▶ Play";
-        startPlayback();
-      } catch (err) {
-        trackSub.textContent = "Error decoding audio: " + err.message;
-      }
-    });
+  trackTitle.textContent = file.name.replace(/\.[^.]+$/, "");
+  trackStatus.textContent = "Decoding audio…";
+  playBtn.disabled = true;
+  albumArt.textContent = "🎵";
 
-    // ── Playback ──────────────────────────────────────────────
-    function startPlayback() {
-      if (!audioBuffer) return;
-      if (sourceNode) { sourceNode.disconnect(); }
-      sourceNode = audioCtx.createBufferSource();
-      sourceNode.buffer = audioBuffer;
-      sourceNode.connect(analyser);
-      sourceNode.start(0, pausedAt);
-      startedAt = audioCtx.currentTime - pausedAt;
-      isPlaying = true;
-      playBtn.textContent = "⏸ Pause";
-      sourceNode.onended = () => {
-        if (isPlaying) { pausedAt = 0; isPlaying = false; playBtn.textContent = "▶ Play"; }
-      };
-    }
+  try {
+    const ab = await file.arrayBuffer();
+    audioBuffer = await audioCtx.decodeAudioData(ab);
+    timeTotal.textContent = fmt(audioBuffer.duration);
+    trackStatus.textContent = "CNN-LSTM emotion detection active";
+    playBtn.disabled = false;
+    startPlayback();
+  } catch(err) {
+    trackStatus.textContent = "Error: " + err.message;
+  }
+});
 
-    function pausePlayback() {
-      if (!isPlaying) return;
-      pausedAt = audioCtx.currentTime - startedAt;
-      sourceNode.stop();
+// ── Playback ──────────────────────────────────────────────────
+function startPlayback() {
+  if (!audioBuffer) return;
+  if (sourceNode) { try { sourceNode.disconnect(); } catch(e){} }
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = audioBuffer;
+  sourceNode.connect(analyser);
+  sourceNode.start(0, pausedAt);
+  startedAt = audioCtx.currentTime - pausedAt;
+  isPlaying = true;
+  playBtn.innerHTML = "⏸";
+  albumArt.classList.add("playing");
+  sourceNode.onended = () => {
+    if (isPlaying) {
       isPlaying = false;
-      playBtn.textContent = "▶ Play";
-    }
-
-    function stopAll() {
-      if (sourceNode) { try { sourceNode.stop(); } catch(e){} sourceNode = null; }
-      if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
-      isPlaying = false; isMicActive = false;
       pausedAt = 0;
-      micBtn.textContent = "🎙 Mic";
-      micBtn.classList.remove("active");
+      playBtn.innerHTML = "▶";
+      albumArt.classList.remove("playing");
     }
+  };
+}
 
-    playBtn.addEventListener("click", () => {
-      if (!audioBuffer) return;
-      audioCtx.resume();
-      isPlaying ? pausePlayback() : startPlayback();
-    });
+function pausePlayback() {
+  if (!isPlaying) return;
+  pausedAt = audioCtx.currentTime - startedAt;
+  sourceNode.stop();
+  isPlaying = false;
+  playBtn.innerHTML = "▶";
+  albumArt.classList.remove("playing");
+}
 
-    // ── Microphone ────────────────────────────────────────────
-    micBtn.addEventListener("click", async () => {
-      if (isMicActive) {
-        stopAll();
-        trackName.textContent = "No audio loaded";
-        trackSub.textContent = "CNN-LSTM emotion model active";
-        playBtn.disabled = true;
-        return;
+function stopAll() {
+  if (sourceNode) { try { sourceNode.stop(); } catch(e){} sourceNode = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  isPlaying = false; isMicActive = false; pausedAt = 0;
+  playBtn.innerHTML = "▶";
+  micBtn.textContent = "🎙 Mic";
+  micBtn.classList.remove("recording");
+  albumArt.classList.remove("playing");
+}
+
+playBtn.addEventListener("click", () => {
+  if (!audioBuffer && !isMicActive) return;
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  isPlaying ? pausePlayback() : startPlayback();
+});
+
+// ── Microphone ────────────────────────────────────────────────
+micBtn.addEventListener("click", async () => {
+  if (isMicActive) {
+    stopAll();
+    trackTitle.textContent = "No audio loaded";
+    trackStatus.textContent = "Upload a file or use your microphone to begin";
+    playBtn.disabled = true;
+    return;
+  }
+  stopAll();
+  initAudio();
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const micSrc = audioCtx.createMediaStreamSource(micStream);
+    micSrc.connect(analyser);
+    isMicActive = true;
+    micBtn.textContent = "⏹ Stop";
+    micBtn.classList.add("recording");
+    trackTitle.textContent = "Live microphone";
+    trackStatus.textContent = "Real-time CNN-LSTM emotion detection";
+    albumArt.textContent = "🎤";
+    albumArt.classList.add("playing");
+    playBtn.disabled = true;
+  } catch(err) {
+    trackStatus.textContent = "Mic error: " + err.message;
+  }
+});
+
+// ── Emotion override pills ────────────────────────────────────
+document.querySelectorAll(".e-pill").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const em = btn.dataset.e;
+    if (overrideEmotion === em) {
+      overrideEmotion = null;
+      document.querySelectorAll(".e-pill").forEach(b => b.classList.remove("active"));
+      trackStatus.textContent = "Auto emotion detection";
+    } else {
+      document.querySelectorAll(".e-pill").forEach(b => b.classList.remove("active"));
+      overrideEmotion = em;
+      btn.classList.add("active");
+      trackStatus.textContent = `Emotion locked: ${em.toUpperCase()}`;
+      // Force state update visually
+      applyEmotion(em, 1.0, {[em]: 1.0});
+      // Tell server
+      if (window.ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ override_emotion: em }));
       }
-      stopAll();
-      initAudio();
-      try {
-        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const micSource = audioCtx.createMediaStreamSource(micStream);
-        micSource.connect(analyser);
-        isMicActive = true;
-        micBtn.textContent = "⏹ Stop Mic";
-        micBtn.classList.add("active");
-        trackName.textContent = "Live microphone input";
-        trackSub.textContent = "Real-time CNN-LSTM emotion detection active";
-        playBtn.disabled = true;
-      } catch (err) {
-        trackSub.textContent = "Mic error: " + err.message;
-      }
-    });
-
-    // ── Emotion override buttons ──────────────────────────────
-    document.querySelectorAll(".e-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const emotion = btn.dataset.emotion;
-        if (overrideEmotion === emotion) {
-          overrideEmotion = null;
-          btn.classList.remove("active");
-          trackSub.textContent = "Auto emotion detection active";
-        } else {
-          document.querySelectorAll(".e-btn").forEach(b => b.classList.remove("active"));
-          overrideEmotion = emotion;
-          btn.classList.add("active");
-          trackSub.textContent = `Emotion locked: ${emotion.toUpperCase()}`;
-          // Send override to server
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ override_emotion: emotion }));
-          }
-        }
-      });
-    });
-
-    // ── Progress bar ──────────────────────────────────────────
-    function updateProgress() {
-      if (isPlaying && audioBuffer) {
-        const current = audioCtx.currentTime - startedAt;
-        const total = audioBuffer.duration;
-        const pct = Math.min(100, (current / total) * 100);
-        progFill.style.width = pct + "%";
-        const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
-        progTime.textContent = `${fmt(current)} / ${fmt(total)}`;
-      }
-      requestAnimationFrame(updateProgress);
     }
-    updateProgress();
+  });
+});
 
-    // Click progress bar to seek
-    document.getElementById("progressBar").addEventListener("click", (e) => {
-      if (!audioBuffer) return;
-      const rect = e.currentTarget.getBoundingClientRect();
-      const pct = (e.clientX - rect.left) / rect.width;
-      pausedAt = pct * audioBuffer.duration;
-      if (isPlaying) { sourceNode.stop(); startPlayback(); }
-    });
+// ── Progress ──────────────────────────────────────────────────
+document.getElementById("progressWrap").addEventListener("click", (e) => {
+  if (!audioBuffer) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  pausedAt = ((e.clientX - rect.left) / rect.width) * audioBuffer.duration;
+  if (isPlaying) { sourceNode.stop(); startPlayback(); }
+});
 
-    // ── Audio amplitude for beat reactivity ───────────────────
-    function getAmplitude() {
-      if (!analyser) return 0;
-      const data = new Uint8Array(analyser.frequencyBinCount);
-      analyser.getByteFrequencyData(data);
-      const sum = data.reduce((a, b) => a + b, 0);
-      return sum / data.length / 128;
+// ── Waveform display ──────────────────────────────────────────
+let waveFreqData = null;
+
+function updateWaveform(color) {
+  if (!analyser) return;
+  if (!waveFreqData) waveFreqData = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(waveFreqData);
+  const n = 32;
+  const step = Math.floor(waveFreqData.length / n);
+  for (let i = 0; i < n; i++) {
+    const val = waveFreqData[i * step] / 255;
+    const h = Math.max(4, val * 36);
+    const el = document.getElementById(`wb${i}`);
+    if (el) {
+      el.style.height = h + "px";
+      el.style.background = color;
+      el.style.opacity = 0.4 + val * 0.6;
     }
+  }
+}
 
-    // Send amplitude to server every 100ms
-    setInterval(() => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        const amp = getAmplitude();
-        ws.send(JSON.stringify({ amplitude: amp }));
+// ── FPS counter ───────────────────────────────────────────────
+let fps = 0, fpsFrames = 0, fpsLast = performance.now();
+
+function tickFps() {
+  fpsFrames++;
+  const now = performance.now();
+  if (now - fpsLast >= 1000) {
+    fps = fpsFrames;
+    fpsFrames = 0;
+    fpsLast = now;
+    document.getElementById("fpsDisplay").textContent = fps + " fps";
+  }
+}
+
+// ── Apply emotion state to UI ─────────────────────────────────
+function applyEmotion(emotion, confidence, probs) {
+  const col = EMOTION_COLORS[emotion] || "#a78bfa";
+
+  // Emotion name + dot
+  document.getElementById("emotionName").textContent = emotion.toUpperCase();
+  document.getElementById("emotionName").style.color = col;
+  document.getElementById("emotionDot").style.background = col;
+
+  // Confidence arc
+  const pct = Math.min(1, confidence);
+  const arcLen = 226;
+  document.getElementById("confPath").style.strokeDashoffset =
+    arcLen * (1 - pct);
+  document.getElementById("confPath").style.stroke = col;
+  document.getElementById("confLabel").textContent =
+    Math.round(pct * 100) + "%";
+
+  // Probability bars
+  EMOTIONS.forEach(e => {
+    const p = probs[e] || 0;
+    const fill = document.getElementById(`prob_${e}`);
+    const val  = document.getElementById(`probval_${e}`);
+    if (fill) fill.style.width = (p * 100) + "%";
+    if (val)  val.textContent = Math.round(p * 100) + "%";
+  });
+
+  // Progress bar colour
+  progFill.style.background = col;
+
+  // Waveform colour
+  updateWaveform(col);
+}
+
+// ── Animation loop ────────────────────────────────────────────
+function animLoop() {
+  tickFps();
+
+  // Progress bar
+  if (isPlaying && audioBuffer) {
+    const cur = audioCtx.currentTime - startedAt;
+    const tot = audioBuffer.duration;
+    progFill.style.width = Math.min(100, (cur/tot)*100) + "%";
+    timeLeft.textContent = fmt(Math.min(cur, tot));
+  }
+
+  requestAnimationFrame(animLoop);
+}
+animLoop();
+
+// ── WebSocket state handler ───────────────────────────────────
+// Hook into ws_client.js state updates
+const _wsCheck = setInterval(() => {
+  if (typeof ws === "undefined") return;
+  clearInterval(_wsCheck);
+
+  const origOpen  = ws.onopen;
+  const origClose = ws.onclose;
+  const origMsg   = ws.onmessage;
+
+  ws.onopen = (e) => {
+    document.getElementById("connDot").className = "on";
+    document.getElementById("connText").textContent = "connected";
+    if (origOpen) origOpen(e);
+  };
+
+  ws.onclose = (e) => {
+    document.getElementById("connDot").className = "off";
+    document.getElementById("connText").textContent = "reconnecting…";
+    if (origClose) origClose(e);
+  };
+
+  ws.onmessage = (e) => {
+    if (origMsg) origMsg(e);
+    try {
+      const data = JSON.parse(e.data);
+      if (data.emotion && !overrideEmotion) {
+        // Build probs from server data or estimate
+        const probs = data.probs || { [data.emotion]: data.confidence || 0.8 };
+        applyEmotion(data.emotion, data.confidence || 0.8, probs);
       }
-    }, 100);
-
-    // ── Update HUD from WS state ──────────────────────────────
-    const EMOTION_COLORS = {
-      happy: "#fbbf24", sad: "#60a5fa", calm: "#a78bfa",
-      angry: "#f87171", energetic: "#34d399"
-    };
-
-    const _origOnMessage = window._wsOnMessage;
-    function onStateUpdate(data) {
-      if (!data.emotion) return;
-      const col = EMOTION_COLORS[data.emotion] || "#a78bfa";
-      emotionLbl.textContent = data.emotion.toUpperCase();
-      emotionLbl.style.color = col;
-      const conf = Math.round((data.confidence || 0.8) * 100);
-      confFill.style.width = conf + "%";
-      confFill.style.background = col;
-      confText.textContent = conf + "% confidence";
-    }
-
-    // ── WebSocket status display ──────────────────────────────
-    function updateWsStatus(status) {
-      wsStatusEl.textContent = "ws: " + status;
-      statusDot.className = status === "open" ? "connected" : status === "closed" ? "error" : "";
-    }
-
-    // Patch ws_client.js connection hooks
-    const _checkWs = setInterval(() => {
-      if (typeof ws !== "undefined") {
-        clearInterval(_checkWs);
-        const origOnOpen = ws.onopen;
-        const origOnClose = ws.onclose;
-        const origOnMsg = ws.onmessage;
-        ws.onopen = (e) => { updateWsStatus("open"); if(origOnOpen) origOnOpen(e); };
-        ws.onclose = (e) => { updateWsStatus("closed"); if(origOnClose) origOnClose(e); };
-        ws.onmessage = (e) => {
-          if(origOnMsg) origOnMsg(e);
-          try { onStateUpdate(JSON.parse(e.data)); } catch(_){}
-        };
-      }
-    }, 100);
-  </script>
+    } catch(_) {}
+  };
+}, 100);
+</script>
 </body>
 </html>
